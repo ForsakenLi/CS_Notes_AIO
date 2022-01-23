@@ -41,13 +41,13 @@
 
 ![image](https://user-images.githubusercontent.com/29897667/109777218-6d63b680-7c3e-11eb-8408-fa8f16b2fc57.png)
 
-Linux内核使用 `Futex(fast user-space mutex)` ，它有两个组成部分：在user-space中的一个spin latch、OS级的mutex。DBMS优先获取user-space latch，若获取失败，进程切换入内核态并尝试获取更昂贵的mutex。如果获取mutex也失败，则线程通知OS它因申请锁而阻塞，OS将其放在一个等待队列中，等待调度器调度。
+Linux内核使用 `Futex(fast user-space mutex)` 【类似Golang Mutex的Fast Path 通过自旋4次等待避免进入sleep lock】，它有两个组成部分：在user-space中的一个spin latch、OS级的mutex。DBMS优先获取user-space latch，若获取失败，进程切换入内核态并尝试获取更昂贵的mutex。如果获取mutex也失败，则线程通知OS它因申请锁而阻塞，OS将其放在一个等待队列中，等待调度器调度。
 
 [Futex](https://www.jianshu.com/p/d17a6152740c)
 
 #### 3.2.2. Test-and-Set Spin Latch (TAS)
 
-使用CPU提供的CAS指令对进程空间中的值进行判断，不会像mutex一样进行线程状态切换（用户态->内核态），速度很快。如果CAS失败，则通过一个while循环尝试继续更新。循环中也可实现为满足某条件时挂起让其他线程执行或退出。
+使用CPU提供的CAS指令【amoswap】对进程空间中的值进行判断，不会像mutex一样进行线程状态切换（用户态->内核态），速度很快。如果CAS失败，则通过一个while循环尝试继续更新。循环中也可实现为满足某条件时挂起让其他线程执行或退出。
 
 但是无可扩展性，对cache不友好，循环会消耗CPU资源。如std::atomic\<T>
 
@@ -77,8 +77,6 @@ DBMS需要管理读队列和写队列去避免starvation。
 
 - **Slot Latch**：page中每个slot都有自己的锁。它提升了并行性，因为一个page可以同时被多个thread访问。但是提高了存储和计算开销。DBMS可以使用简单模式的latch（如spin latch）去减少元数据和计算开销。
 
-  ![1614787004557](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1614787004557.png)
-
 ## 5. B+Tree Latching
 
 ### 5.1. 基本方法
@@ -103,17 +101,23 @@ DBMS需要管理读队列和写队列去避免starvation。
 
 每次insert/Delete操作都需要在根节点加写锁，写锁是exclusive的，降低了并行性，这会造成很大的性能瓶颈。
 
-假设大多数操作不会造成叶节点的分裂和合并（真实DB中一个node大约有16KB，会存有很多key），于是insert/delete操作先获取节点读锁，到叶节点时获取写锁，**如果叶节点不是safe的**，释放当前持有的所有锁，从根节点开始重新获取写锁。
+假设大多数操作不会造成叶节点的分裂和合并（真实DB中一个node大约有16KB，会存有很多key），于是insert/delete操作先获取节点读锁，到叶节点时获取写锁，**如果叶节点不是safe的**，释放当前持有的所有锁，从根节点开始重新获取写锁。(本质原因是绝大多数insert/delete操作并不会导致Node分裂合并。)
 
 （即先尝试使用乐观锁）
 
-### 5.3 Leaf Node Scans
+### 5.3 Leaf Node Scans - Dead Lock
 
 不考虑兄弟指针的情况下，B+Tree只会被从上至下地访问，这种情况下不会发生死锁。
 
-考虑兄弟指针时，在叶节点遍历上就有了两个方向（从左至右和从右至左）。Index Latch不支持deadlock detection 和 deadlock avoidance。
+从左右横向遍历Leaf Node时，如果都是读操作，即使两个线程访问的方向不同，由于读锁可以被共享，两个线程可以交换其拥有的读锁以解决死锁问题。
 
-于是解决这一问题的唯一方法是通过编码规则。获取兄弟节点的锁时必须支持 `no-wait` 模式，即thread试图获取叶节点上的锁，但该锁不可获取时，那么它将立即中止其操作（释放所有持有的锁），并从根节点重新启动该操作。
+  ![image](img/6-1.png)
+
+考虑兄弟指针时，在叶节点遍历上就有了两个方向（从左至右和从右至左）。Index Latch不支持deadlock detection 和 deadlock avoidance。
+  ![image](img/6-2.png)
+
+于是解决这一问题的唯一方法是通过编码规则, 在遇到一个需要获取兄弟节点锁但无法获取时(如上图一个节点自身仅有读锁，无法交换到对方的写锁)。获取兄弟节点的锁时必须支持 `no-wait` 模式，即thread试图获取叶节点上的锁，但该锁不可获取时，那么它将立即中止其操作（释放所有持有的锁, 自杀操作），并从根节点重新启动该操作。
+  ![image](img/6-3.png)
 
 ### 5.4 Delayed Parent Updates
 
@@ -127,7 +131,7 @@ DBMS需要管理读队列和写队列去避免starvation。
 
 **Delayed Parent Updates** 是处理overflow时的一种额外优化手段，当一个叶节点溢出时，延迟更新它的父节点。（这样就不用重头开始并拿着写锁一路往下遍历了，只需要更新这棵树中全局信息表中的一点内容）
 
-![1614843015064](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1614843015064.png)
+  ![image](img/6-4.png)
 
 如上图所示，插入25时，将31分裂到了新节点中，此时不会重新获取写锁更新C，而是C的修改记录在一个全局信息表中。当后续线程持有C的写锁时，再完成这一修改。
 
