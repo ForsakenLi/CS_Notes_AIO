@@ -72,26 +72,20 @@
 
 ### Hashing Aggregation
 
-在计算聚合时，Hash的计算成本比排序低。DBMS在扫描表的时候会填充一个transient的哈希表。对于每一条记录，检查哈希表中是否已经有这个条目，并进行适当的修改。如果哈希表的尺寸太大，无法在内存中容纳，那么DBMS就必须将其spill到磁盘上。完成这个任务分为两个阶段:
+在计算聚合时，Hash的计算成本比排序低。DBMS在扫描表的时候会填充一个transient的哈希表。对于每一条记录，检查哈希表中是否已经有这个条目，并进行适当的修改。如果哈希表的尺寸太大，无法在内存中容纳，那么DBMS就必须将其spill到磁盘上。在DBMS扫描table时填充临时hash table。对每条record，检查在hash table中是否已存在该record（`DISTINCT`、`GROUP BY`）
+
+完成这个任务分为两个阶段:
 
 #### Phase #1: Partition
-
-#### Phase #2: ReHash
-
-在DBMS扫描table时填充临时hash table。对每条record，检查在hash table中是否已存在该record（`DISTINCT`、`GROUP BY`）
-
-#### External Hashing Aggregation
-
-第一步：**Partition**
 
 - 使用hash function *h1*， 基于hash key将tuples分partition
 - 当partition满时将其写入disk（通过buffer pool manager）
 - 这样保证具有相同key的record在一个partition当中，不需要去别的partition寻找是否具有相同key的record（同一个partition中保存的key可能不同）
 - 假设有B个buffer，使用B-1个用于partition，剩下一个用于保存输入
 
-![1623940916901](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1623940916901.png)
+![image](img/7-2.png)
 
-第二步：**ReHash**：
+#### Phase #2: ReHash
 
 使用hash table进行总结，将其压缩为要计算结果所需的最少信息。
 

@@ -12,7 +12,9 @@
 
 ## 2. Processing Model
 
-一个DBMS的Processing Model定义了系统如何执行一个query plan。
+一个DBMS的Processing Model定义了系统如何执行一个query plan。它诸如执行查询计划的方向以及何种数据在操作符直接移动等等。不同的处理模型，对不同的工作负载有不同的trade-off。
+
+这些模型也可以实现从上到下或从下到上地调用运算符。尽管从上到下的方法更为常见，但从下到上的方法可以使pipeline中的缓存/寄存器得到更严格的控制。
 
 ### 2.1. Iterator Model
 

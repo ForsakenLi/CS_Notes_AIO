@@ -22,9 +22,10 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 
 分析不同join算法的不同主要基于disk IO次数。包括从disk读取数据的IO以及将中间结果写入disk的IO。
 
-> M pages in table R, m tuples total
+符号定义
+> M pages in table R(Outer Table), m tuples total
 >
-> N pages in table S, n tuples total
+> N pages in table S(Inner Table), n tuples total
 
 ## 3. Nested Loop Join
 
@@ -56,15 +57,18 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 
 ![image](https://user-images.githubusercontent.com/29897667/123555670-b1fcfa00-d7b9-11eb-8fb7-174bfcd2ab34.png)
 
+以前的嵌套循环连接算法表现很差，因为DBMS必须进行顺序扫描来检查内表的匹配情况。然而，如果数据库已经有一个join键的索引，它可以使用这个索引来加快比较的速度。DBMS可以使用现有的索引，或者为连接操作建立一个临时索引。
+
+
 - inner table使用索引，outer table不使用
 - 可以是原有的索引，也可以是临时索引
 - ![image](https://user-images.githubusercontent.com/29897667/123555689-dce74e00-d7b9-11eb-91f1-3d5dc7c38273.png)
 
 ### 3.4. 注意事项
 
-- 更小的表作为outer table
-- 尽可能将outer table缓存在mem中，以减少disk IO
-- inner table使用index
+- 更小的表作为outer table - Simple Nested Loop Join
+- 尽可能将outer table缓存在mem中，以减少disk IO - Block Nested Loop Join
+- inner table使用index - Index Nested Loop Join
 
 ## 4. Sort-Merge Join
 
@@ -77,8 +81,10 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 
 **阶段二：Merge**
 
-- 每个table一个cursor，遍历两个有序表，将join key一样的tuples作为output
-- 可能需要进行回溯，只有inner table需要回溯（在outer table的join key重复，且和inner table的join key匹配时）
+- 每个table一个cursor，通过不断的向下移动值较小的cursor，遍历两个有序表，将join key一样的tuples作为output
+![image](img/8-1.png)
+- 可能需要进行回溯，只有inner table需要回溯（在outer table的join key重复，且和inner table的join key匹配时，由于当两个游标的值重复时优先移动inner table的cursor，因此在如下图一样，outer table再次出现重复值时就需要回溯）
+![image](img/8-2.png)
 
 **Cost**：
 
@@ -102,8 +108,8 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 **阶段一：Build**
 
 - 在outer table上的join attributes上使用hash function *h1* 建立hash table（如果DBMS知道outer table的大小，则可以使用static hash table，否则使用dynamic hash table或者使用overflow page，如果hash table溢出到磁盘上，就需要进行大量随机IO）。key为join attribute，value形式包括
-  - **Full Tuple**：避免在比较value时查询outer table的tuple；但是使用更多存储空间
-  - **Tuple Identifier**：适用于列存，因为DBMS不需要从disk取不需要的数据
+  - **Full Tuple**：将完整的kv存储在内存中，避免在比较value时查询outer table的tuple；但是使用更多存储空间
+  - **Tuple Identifier**：仅存储tuple的标识符，适用于列存，因为DBMS不需要从disk取不需要的数据
 
 **阶段二：Probe**
 
@@ -115,7 +121,7 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 - 在probe phase，将bloom filter传到join里面。对hash table检测前，先检测bloom filter
   - 若检测为F，则表示outer table不含该key，无需查hash table，从而减少了磁盘IO
   - 若检测为T，去hash table中检测
-- 有时称为 **边路信息传递**
+- 有时称为 **旁路信息传递**
 
 ### 5.2. Grace Hash Join / Hybrid Hash Join
 
@@ -125,13 +131,17 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 
 **阶段一：Build**
 
-- （普通Hash Join中，只为outer table构建hash table，然后对inner table检测是否有复合join条件的tuple，然后join）
-- 对outer table和inner table都使用相同的hash function *h1* 创建hash table。hash table的buckets可以写到disk中
-  - 如果一个bucket不能放在mem中，使用 **recursive partition**，即使用另一个hash function *h2* 将这个bucket分为子bucket
+- （普通Hash Join中，只为outer table构建hash table，然后对inner table检测是否有符合join条件的tuple，然后join）
+- Grace Hash Join: 对outer table和inner table都使用相同的hash function *h1* 创建hash table。hash table的buckets可以写到disk中
+  - 如果一个bucket不能放在mem中，使用 **recursive partition**，即使用另一个hash function *h2* 将这个bucket分为子bucket, 相当于缩小了page的大小，便于其在Probe阶段可以移动到内存中。不过内表和外表其中无论那一边需要**recursive partition**，另外一边也需要同步的使用hash function *h2* 来对齐。
+
+![image](img/8-5.png)
 
 **阶段二：Probe**
 
-- 检查两个hash table的对应bucket，在两个pages中使用nested loop将join attr对应的tuple进行匹配。这些page在mem中，所以减少了随机disk IO。
+![image](img/8-4.png)
+
+- 检查两个hash table的对应bucket，将内表和外表中的hash值相同的bucket移动到内存, 在两个pages中使用嵌套循环将join attr对应的tuple进行匹配。这些page在mem中，所以减少了随机disk IO。
 
 **Cost**：
 
@@ -146,10 +156,12 @@ DBMS只复制匹配到的tuple的join key属性以及record id。这种方式适
 
 概率型数据结构（bitmap），用于回答近似成员查询（判断key是否存在于集合中），可插入和查找，但不能删除。
 
-- False negatives 不会出现（即判断为F，实际为T）
-- False positive 可能出现（即判断为T，但实际为F）
+- False negatives 不会出现（即判断为F，实际为T，如果判断该key不存在就一定不存在）
+- False positive 可能出现（即判断为T，但实际为F，如果判断该key存在有可能不存在）
 
 **步骤**：
 
 - **Insert**：使用k个hash function，将hash结果对应的filter中bit置为1
 - **Lookup**：检查k个hash function 哈希后的bit位是不是都是1：若都是1，则判断为T，否则为F
+
+![image](img/8-3.png)
