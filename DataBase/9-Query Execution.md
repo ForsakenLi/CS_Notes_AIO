@@ -202,45 +202,59 @@ DBMS将 **WHERE 语句** 表示为 **expression tree**。（在一个operator中
 ### 7.1. Process per Worker
 
 - 每个worker是一个独立的OS进程，它依赖于OS sheduler
-- 使用shared memory来存储全局数据结构
-- 一个进程crash不会影响到整个系统
+- 当应用程序发送一个与数据库连接的请求，调度器(dispatcher)会fork一个worker进程来处理这个连接，应用程序之后会直接和这个worker进程进行通信
+- 使用这种进程模型会导致一个页面被大量拷贝，因此需要使用shared memory来存储全局数据结构，使之可以在不同进程中共享
+- 优点是一个进程crash不会影响到整个系统
+
+![Process per Worker](img/9-5.png)
 
 ### 7.2. Process Pool
 
+- 进程池模型是对Process per Worker的扩展。进程被保存在一个进程池里，当查询到达时由dispatcher选择一个进程进行服务，而不是为每个连接请求fork一个worker出进程。由于进程共同存在于一个池中，进程之间可以共享查询。
 - 一个worker使用pool中空闲的worker，不会为进来的每个连接去创建一个进程
 - 仍然依赖于OS scheduler和shared memory
 - 这种方法对CPU缓存一致性不好，因为不能保证在查询间使用一个进程
+- 高端的数据库的Process Pool具有work-stealing机制来平衡进程间的工作负载
+
+![Process Pool](img/9-6.png)
 
 ### 7.3. Thread per Worker
 
+- 目前主流数据库采用的方式
 - 单个进程中有多个worker threads
 - DBMS使用一个dispatcher thread进行调度
 - 一个thread crash会导致系统crash
 - 优点：上下文切换开销更小，且不需要管理shared memory
+- 使用thread per Worker并不能保证实现intra-query parallelism
+
+![Thread per Worker](img/9-7.png)
 
 ## 8. Parallel类型
 
-### 8.1. Inter-Query
+### 8.1. Inter-Query(查询间并行)
 
 - 同时执行不同的queries
 - 可以提升吞吐率并减少延迟
 - 如果queries是只读的，则容易做到；如果queries会同时更新DB，则很难正确做到（并发控制）
 
-### 8.2. Intra-Query
+### 8.2. Intra-Query(查询内并行)
 
 - 将一个查询拆分为多个子任务或片段，然后在不同的worker上同时并行执行这些任务
 - 可以减少长时间运行的query的延迟，对于分析性查询优化效果明显
 - 每个operator既接受数据也生产数据，可以将其看作“生产者-消费者模型”
-- 对于每个relational operator都有并行算法：
-  - 可以使用多个thread访问中心数据结
+- 对于每个relational operator都有并行算法,可以在以下两种方式中选择其一：
+  - 使用多个thread访问中心数据结构
   - 或者将收到的数据进行划分，然后使用多线程分别处理这些数据分区（这样就不需要对worker进行协调了）
 - 如 **Parallel Grace Hash Join**，可以让每个worker负责一个bucket中的match
 
 ![image](https://user-images.githubusercontent.com/29897667/125506043-dc7562ac-7cda-462d-bbee-1c3393a19a44.png)
 
-#### 8.2.1. Intra-Operator Parallelism (Horizontal)
+#### 8.2.1. Intra-Operator(操作符内并行) Parallelism (Horizontal)
+
+![Gather exchange](img/9-8.png)
 
 - 将一个完整的操作拆分成多个并行的操作，即将操作的数据分为多段，每一段的执行函数都是一样的，每段中的数据为输入数据中的一部分
+- 如上图所示: 这个SELECT的查询计划是对A的顺序扫描，并送入一个Filter。为了并行运行这个计划，查询计划被划分为互不相干的任务片段。一个给定的任务片段由一个独立的worker完成。Exchange操作符在所有片段上同时调用Next，然后从各自的页面上检索数据。 
 - 如对B+Tree的parallel scan
 - 使用叫**exchange**的operator将这些结果组合在一起，它们放在query plan中可以并行执行的位置
 - **exchange**阻止DBMS在plan中执行它上面的操作符，直到它从子级接收到所有的数据
@@ -249,16 +263,16 @@ DBMS将 **WHERE 语句** 表示为 **expression tree**。（在一个operator中
 
 - **Gather**：将多个workers的结果组合成一个输出流（多对一）
 - **Repartition**：将多个输入流重新组织成多个输出流，即以一种方式partition，再以另一种方式redistribute（多对多）
-- **Distribute**：把一个单一输入流分成多个输出流
+- **Distribute**：把一个单一输入流分成多个输出流（一对多）
 
 **示例**（图中维护的为一个hash table）：
 
 ![image](https://user-images.githubusercontent.com/29897667/125512826-d418c1e0-c89b-4adb-b1fa-0744a2aef2ec.png)
 
-#### 8.2.2. Inter-Operator Parallelism (Vertical)
+#### 8.2.2. Inter-Operator(操作符间并行) Parallelism (Vertical)
 
 - 不同的线程在同一时间执行不同的operator
-- 将数据从一个阶段传输到下一个阶段而不进行物化（生成临时表），又称为**pipelined parallelism**
+- 将数据从一个阶段传输到下一个阶段而**不**进行materialize（生成临时表），又称为**pipelined parallelism**。这种方法被广泛用于流处理系统（如Flink），即在输入tuples流上持续执行查询的系统。
 
 **示例**：
 
@@ -266,9 +280,10 @@ DBMS将 **WHERE 语句** 表示为 **expression tree**。（在一个operator中
 
 #### 8.2.3. Bushy Parallelism
 
-- inter-operator parallelism的扩展，workers同时执行query plan的不同分段的多个operators
+- inter-operator parallelism和intra-operator parallelism的结合，workers同时执行query plan的不同分段的多个operators
 - 依然使用exchange operator从各段组合中间结果
 - 每个operator就是它自己的worker
+- Spark Streaming/Flink/Hive/Kafka采用的架构
 
 **示例**：
 
@@ -293,28 +308,29 @@ DBMS将 **WHERE 语句** 表示为 **expression tree**。（在一个operator中
 
 - 使用多块存储介质来存数据库文件
 - 可通过RAID配置实现，对于DBMS是透明的
-- 不可以使用多worker并行访问，因为DBMS不知道底层存储布局
+- **不可以使用多worker并行访问**，因为DBMS不知道底层存储布局
 
-### 9.2. File-based Parallelism
+### 9.2. Database Parallelism
 
-- 可对每个database指定disk上的位置
-- buffer pool manager将page映射到disk位置上
+- 在Database Parallelism中，数据库被分割成不相干的子集，可以被分配到不相干的磁盘上。一些DBMS允许指定每个单独数据库的磁盘位置。
+- 如果DBMS将每个数据库存储在一个单独的目录中，这在文件系统层面上是很容易做到的。所做更改的log file通常是共享的。
 
-### 9.3. Logical Partitioning
+#### 9.2.1. Logical Partitioning
 
-- 将单个logical table划分为不相交的physical partition，这些Partition都被单独管理。
+- 将单个logical table划分为不相交的physical partition，这些Partition都被单独地进行存储和管理。
 - 这些Partitioning对于应用是透明的，即应用访问这个logical table无需关注它的具体存储方式
+- 分区的两种具体方式是Vertical Partitioning和Horizontal Partitioning
 
-#### 9.3.1. Vertical Partitioning
+#### 9.2.2. Vertical Partitioning
 
 - 分开存储一张表上的属性（类似于列存）
-- 需要取存储tuple信息以重建原始record
+- 需要取存储tuple信息以重建原始记录
 
 ![image](https://user-images.githubusercontent.com/29897667/125622283-f84d9c22-6f54-4d76-a134-2bf396bc5d10.png)
 
-#### 9.3.2. Horizontal Partitioning
+#### 9.2.3. Horizontal Partitioning
 
-- 基于一些Partitioning keys，将一个table的tuples划分为不相交的分段
+- 基于一些Partitioning keys，将一个table的tuples划分为不相交的片段
 - 有不同的方法来决定如何做Partition
   - Hash Partitioning
   - Range Partitioning
