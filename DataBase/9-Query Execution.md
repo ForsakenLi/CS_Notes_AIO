@@ -25,44 +25,45 @@
 也叫作 **Volcano Model** 或 **Pipeline Model**。
 
 - 叫pipeline原因：对于一个tuple，这种模型能使它在query plan中尽可能多地被使用，即在一个operator中处理完后，然后返回并传入下一个operator继续处理（让一个tuple经过尽可能多的operators）。对一个tuple进行一些列处理加工的过程称为pipeline
+- Iterator Model通过为数据库中的每个operator实现一个Next函数来工作。查询计划中的每个节点在其子节点上调用Next，直到到达叶子节点，叶子节点开始进行处理, 并向其父节点发出tuple。然后，每个tuple在返回上一级节点前，尽可能地按照计划完成处理。
 - 每个query plan operator实现一个`NEXT` 函数
   - 每次调用 `NEXT` ，operator会返回一个tuple或null（没有tuple时）
   - operator会实现一个loop调用子节点的`NEXT`方法获取tuple并处理它们
 - 一些操作会阻塞pipeline直到children发出它的所有tuples，这些操作称为**pipeline breaker**，包括：`join`、 `subqueries` 、`order by`
 - output control，如limit很容易做，因为在获取到需要的tuples后就可以停止调用`NEXT`
+- 这在基于磁盘的系统中很有用，因为它允许我们在访问下一个tuple或页面之前充分使用内存中的每个tuple。
 
 ### 2.2. Materialization Model
 
 ![image](https://user-images.githubusercontent.com/29897667/124759116-e020cd80-df61-11eb-866e-e6eeb61a1991.png)
 
-- 主要用于内存型数据库
-- 每个operator一次处理从子节点的`OUTPUT`方法获取的所有tuples
+- 主要用于内存型数据库[Iterator Model主要适用于磁盘型数据库]
+- 每个operator一次处理从子节点的`OUTPUT`方法获取的所有tuples, 和Iterator Model的主要区别是Materialization Model传递的每个算子计算完成的完整数据(相当于上游对下游仅进行一次调用，取回全部结果)，而Iterator Model是数据流中传递的是`单个`tuple。
 - operator返回它要发出的所有tuples
   - operator `materialize(物化)` 它的输出称为单个结果，可以是一个materialized row或单个column
   - 在operator执行完成之前，不会返回及获取更多数据
   - DBMS可以下推`hints(提示)`（沿着query plan tree）取避免扫描太多tuples
-- 这种方法对OLTP workload比较好，因为query仅一次访问一小部分tuples；对于会产生大量中间结果的OLAP查询不太好，因为DBMS可能需要将这些中间结果溢出到disk。
+- 这种方法对`OLTP` workload比较好，因为query仅一次访问一小部分tuples；对于会产生大量中间结果的OLAP查询不太好，因为DBMS可能需要将这些中间结果溢出到disk。
 
 ### 2.3. Vectorized / Batch Model
 
 ![image](https://user-images.githubusercontent.com/29897667/124763192-49a2db00-df66-11eb-8150-07f09e5dbf4f.png)
 
-- 也实现`NEXT`方法，但是发出一批tuples而非单个tuple
+- 也实现`NEXT`方法，但是发出一批tuples而非单个tuple, 相当于将Iterator Model的Single tuple变为了多个，但也分为多次处理，而非和Materialization Model一样的一次处理全量数据。
 - operator实现会优化为对一批数据的处理（operator的内部循环一次处理多个tuples）
-- 主要用于分析型数据库，因为OLAP一次需要扫描大量的tuples，使用vectorized model可以调用更少次数的NEXT
-- 现代CPU有SIMD指令，允许一次对一堆数据进行多个操作。如果有一堆数据，这堆数据可以放在CPU寄存器当中，通过这种单条指令，可以高效地对这些数据进行条件判断或计算。
+- 主要用于分析型数据库，因为`OLAP`一次需要扫描大量的tuples，使用vectorized model可以调用更少次数的NEXT
+- 现代CPU有`SIMD`指令，允许一次对一堆数据进行多个操作。如果有一堆数据，这堆数据可以放在CPU寄存器当中，通过这种单条指令，可以高效地对这些数据进行条件判断或计算。
 
 ### 2.4. Plan Processing Direction
 
 #### 2.4.1. Top-to-Bottom
 
-- 从根节点开始，从子节点获取数据
+- 从根节点开始，从子节点`pull`获取数据(自根节点向下调用next)
 - tuples通过调用函数来获取
 
 #### 2.4.2. Bottom-to-Top
 
 - 从叶节点开始，将数据push给父节点
-
 - 在向上传递数据时，要确保正在处理的数据能够放在CPU缓存和寄存器中
 - 只能用于in-memory数据库
 
@@ -83,7 +84,7 @@
 
 **Prefetching**：预先取当前page后连续的page，防止DBMS因为从disk上取page而造成的阻塞
 
-**Buffer Pool Bypass**：使用一个小buffer对查询进行缓存，避免污染buffer缓存（避免sequential flooding问题）
+**Buffer Pool Bypass**：当遇到大数据量的 Sequential Scan 时，如果将所需 pages 顺序存入 Buffer Pool，将造成后者的污染，因为这些 pages 通常只使用一次，而它们的进入将导致一些可能在未来更需要的 pages 被移除。因此一些 DBMS 做了相应的优化，在这种查询出现时，为它单独分配一块局部内存，将其对 Buffer Pool 的影响隔离。（避免sequential flooding问题: 由于采用LRU、Clock等调度算法，在遇到Sequential Scan时连续的缺页问题）
 
 **Parallelization**：使用多线程或多进程并行地执行scan
 
@@ -92,7 +93,7 @@
 ![image](https://user-images.githubusercontent.com/29897667/125164277-f62dc880-e1c3-11eb-9c93-b347152702c3.png)
 
 - 对于每个page的属性值计算一些聚合信息（如MIN、MAX、AVG、SUM、COUNT等）
-- DBMS通过检查zone map来确定是否要循序访问这个page
+- DBMS通过检查zone map来确定是否要循序访问这个page, 起到了类似布隆过滤器的作用
 - 有的系统将zone map保存在当前page中，有的保存在专门的zone map page中，上面保存了不同page的zone map
 - 更新page中的tuple时就会更新zone map
 - 一般用在OLAP中
@@ -100,7 +101,7 @@
 **Late Materialization**：
 
 - 延迟将数据从一个operator传播到下一个operator
-- 在列存中，单个tuple的各个属性不能被一次获取，且有的属性值在plan tree中的一个节点中用到，因此先在operator中传递record_id，延迟对整个tuple的读
+- 在列存中，单个tuple的各个属性不能被一次获取，且有的属性值在plan tree中的一个节点中用到，因此先在operator中传递record ID(相当于一个对查询结果tuple的future接口，在未来才可获取到)，延迟对整个tuple的读
 
 **Heap Clustering**：
 
@@ -122,6 +123,9 @@
 - query的判断条件（属性值范围）
 - index是否是unique index
 
+![image](img/9-1.png)
+应选择更selective的index
+
 #### 3.2.2. Multi-Index Scan
 
 通过不同的索引进行多次查找，然后基于判断条件，将结果进行合并（AND、OR）
@@ -129,22 +133,42 @@
 如果对于一次query可以使用多个index
 
 - 计算使用每个index的record id set（set可以是bitmap、hash table或Bloom Filter等形式）
-- 基于query的预测组合这些sets（union or intersect）
-- 最后检索records
+- 基于query的预测组合这些sets（取交集或并集）
+- 最后检索records，并使用剩下的条件断言过滤
 
-![1626026698300](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1626026698300.png)
+![image](img/9-2.png)
 
-按照非聚集索引中的顺序查找tuples会导致随机IO，因此DBMS可以首先查找出所有tuples并且基于page id排序（找出tuple对应的主键key，并将逐渐key排序，在进行disk IO，即 [MySQL MRR](https://github.com/XutongLi/My_Document/issues/9#issuecomment-874611801)）
+##### Index Scan Page Sorting
+
+按照非聚集索引中的顺序查找tuples会导致随机IO，因此DBMS可以首先查找出所有tuples并且基于page id排序【相当于修改遍历tuple的顺序为page的顺序避免随机IO】（找出tuple对应的主键key，并将逐渐key排序，在进行disk IO，即 [MySQL MRR](https://github.com/XutongLi/My_Document/issues/9#issuecomment-874611801)）
+![image](img/9-3.png)
+
+## 3.5 Modification Queries - 2021版新内容
+
+修改数据库的Operators（INSERT、UPDATE、DELETE）有责任检查约束和更新索引【老师的例子是如果插入时主键有Unique约束，那么Insert操作需要对这个约束进行一定的维护；以及如果使用了Zone Maps，那么在进行这些更新操作时需要这些操作符对Zone Map进行更新】。
+
+对于UPDATE/DELETE，子操作为目标tuples传递Record ID，并且必须跟踪以前看到的tuples。
+
+对于Insert操作，有以下两种实现选择
+
+- 将Insert操作中的tuples物化【类似前面的Materialization】
+- Insert操作在插入任何tuple时总是从子操作符获取
+
+**Halloween Problem**
+万圣节问题是一种异常现象，即更新操作改变了一个tuple的物理位置，导致扫描操作者多次访问该tuple组。这可能发生在聚类表或索引扫描中。
 
 ## 4. Expression Evaluation
 
-DBMS将 **WHERE Clause** 表示为 **expression tree**。（在一个operator中）
+DBMS将 **WHERE 语句** 表示为 **expression tree**。（在一个operator中）【类似事件中心中的多条件查询bind为一个独立对象】
 
 表达树上不同节点代表了条件判断中不同类型的表达式。
 
 ![image](https://user-images.githubusercontent.com/29897667/125205672-01f9b780-e2b6-11eb-9edc-053d2e241596.png)
 
 为了在运行时评测expression tree（的条件判断的正确性），DBMS会维护一个context handler去包含执行的一些元数据（current tuple、table schema、parameter）。这些DBMS会便利tree去评测操作并产生结果。
+![image](img/9-4.png)
+
+以这种方式评估谓词是很慢的，因为DBMS必须遍历整个树并确定对每个操作符采取的正确行动。一个更好的方法是直接评估表达式。
 
 ## 5. Parallel Execution 的好处
 
@@ -153,7 +177,7 @@ DBMS将 **WHERE Clause** 表示为 **expression tree**。（在一个operator中
 - 更小的延迟：单个查询要花的执行时间变小
 - 更好的系统响应能力和可用性：系统对请求更快地响应
 
-## 6. 并行(parallel)和分布式(distributed)
+## 6. 并行(parallel)和分布式(distributed)数据库
 
 ### 6.1. 相同点
 
