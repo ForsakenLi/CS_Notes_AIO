@@ -1,7 +1,3 @@
 ## Notes
 
-[APUE](https://github.com/XutongLi/Learning-Notes/tree/master/APUE)
-
-[C++ Primer](https://github.com/XutongLi/Learning-Notes/tree/master/Cpp_Primer_Notes)
-
-[Distributed System](https://github.com/XutongLi/Learning-Notes/tree/master/Distributed_System)
+大部分文本fork自其他人，通过这种修改markdown这种方式加深自己对知识的理解
