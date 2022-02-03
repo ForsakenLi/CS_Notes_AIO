@@ -2,13 +2,15 @@
 
 ### 前言
 
+路径: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/iterator
+
 前面我们分析了迭代器的五类, 而迭代器所指向对象的型别被称为`value type`. 传入参数的类型可以通过编译器自行推断出来, 但是如果是函数的返回值的话, 就无法通过`value type`让编译器自行推断出来了. 而`traits`就解决了函数返回值类型. 同样原生指针不能内嵌型别声明，所以内嵌型别在这里不适用, 迭代器无法表示原生指针(int *, char *等称为原生指针). 这个问题就通过`traits`偏特化技术解决的. 这一篇我们就主要探讨`traits`是怎么实现这些没有能解决的问题.
 
 
 
 ### iterator_traits结构
 
-`iterator_traits`结构体就是使用`typename`对参数类型的提取(萃取), 并且对参数类型在进行一次命名, 看上去对参数类型的使用有了一层间接性. 以下就是它的定义.
+`iterator_traits`结构体就是使用`typename`对参数类型的提取(萃取), 并且对参数类再进行一次命名, 看上去对参数类型的使用有了一层间接性. 以下就是它的定义.
 
 ```c++
 template <class Iterator>
@@ -78,9 +80,6 @@ inline void distance(InputIterator first, InputIterator last, Distance& n)
 }
 	
 template <class InputIterator, class Distance>
-inline void __distance(InputIterator first, InputIterator last, Distance& n, 
-                       input_iterator_tag) 
-{plate <class InputIterator, class Distance>
 inline void __distance(InputIterator first, InputIterator last, Distance& n, 
                        input_iterator_tag) 
 {
