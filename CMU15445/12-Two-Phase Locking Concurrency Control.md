@@ -2,6 +2,8 @@
 
 ## 1. high level上锁的使用
 
+DBMS使用锁来动态地生成事务的执行计划，该计划可以在不提前知道每个事务的读/写集的情况下进行序列化。这些锁在有多个读者和写者的并发访问中保护数据库对象。DBMS包含一个集中的锁管理器，决定一个事务是否可以获得一个锁。它还提供了一个关于系统内部发生的事情的全局视图。
+
 ![image](https://user-images.githubusercontent.com/29897667/126863361-0ae76fbd-b80d-46be-a4bd-3fd1722c5188.png)
 
 ## 2. Locks VS Latches
@@ -22,9 +24,13 @@ DBMS包含一个Lock Manager，用于决定一个事务是否可以获得一个l
 **lock执行过程**：
 
 - Txn从lock manager申请lock
-- 基于lock被分配的情况，lock manager决定授予该lock还是阻塞请求
+- 基于lock被分配的情况，l**ock manager决定**授予该lock还是阻塞请求
 - txn在不需要lock后将其释放
-- lock manager更新internal lock-table然后将lock分配给等待的txn
+- lock manager更新**internal lock-table**然后将lock分配给等待的txn
+
+但如果仅通过锁我们无法保证事务的ACID特性，如下图所示，这个事务出现了不可重复读的情况。所以我们需要两阶段锁协议。
+
+![12-1](img/12-1.png)
 
 ## 4. Two-Phase Locking
 
@@ -40,17 +46,23 @@ DBMS包含一个Lock Manager，用于决定一个事务是否可以获得一个l
 **Phase 2: Shrinking**
 
 - txn在释放第一个lock后进入该阶段
-- 在本阶段，txn只可以释放之前申请到的lock，不可以再申请新的lock
+- 在本阶段，txn只可以释放之前申请到的lock，**不可以再申请新的lock**
 
 ![image](https://user-images.githubusercontent.com/29897667/126894006-9c909fd6-daae-451d-9596-336d56371da6.png)
 
 ![image](https://user-images.githubusercontent.com/29897667/126894036-3c723c5f-5e3a-4dc4-8b4e-7911ba832725.png)
 
-2PL本身保证conflict serializable，它会生成precedence graph无环的schedules。但是它存在**cascading aborts** 的问题，当一个txn abort的时候，另一个txn也必须roll back。
+2PL本身保证conflict serializable，它会生成precedence graph无环的schedules。但是它存在**cascading aborts** 的问题，当一个txn abort的时候，另一个txn也必须随之rollback。
 
 ![image](https://user-images.githubusercontent.com/29897667/126893990-e813b6ee-f791-40d5-bff5-f6dae2199125.png)
 
-有的schedule是serializable的，但在两阶段锁协议中不被允许。
+### 2PL的缺点
+
+- 2PL仅解决了事务的不可重复读问题（事务不可能再次读已经释放了锁的变量），没有解决脏读问题（2PL不保证释放锁后事务一定会提交）。
+
+- 有的schedule是serializable的，但在两阶段锁协议中不被允许, 因为锁限制了concurrency。
+
+- 可能会导致死锁，需要使用死锁检测或死锁预防机制。
 
 ## 5. Strong Strict Two-Phase Locking
 
