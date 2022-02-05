@@ -70,11 +70,17 @@ DBMS包含一个Lock Manager，用于决定一个事务是否可以获得一个l
 
 如果一个txn对对象的修改直到该txn结束后才可以被别的txn读或写，则这个txn是**strict**的。
 
-SS2PL不会有**cascading aborts** 的情况。会让系统吞吐率降低。
+- SS2PL不会有**cascading aborts** 的情况。会让系统吞吐率降低。
+
+- DBMS还可以通过恢复被修改的tuple的原始值来逆转被中止的事务的变化。
+
+- 然而，SS2PL产生了更谨慎/悲观的时间表，限制了并发性。
 
 ![image](https://user-images.githubusercontent.com/29897667/126894016-956e6b80-60c3-4180-81f6-d890612dc670.png)
 
-![1627204491433](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1627204491433.png)
+新的schedule关系图
+
+![12-2](img/12-2.png)
 
 ## 6. 2PL Deadlock Handling
 
@@ -84,9 +90,11 @@ SS2PL不会有**cascading aborts** 的情况。会让系统吞吐率降低。
 
 DBMS会使用一个后台线程来进行死锁检测，创建一个 **wait-for gragh**：
 
+为了检测死锁，DBMS创建了一个waits-for图，其中事务是节点，如果事务Ti在等待事务Tj释放锁，则存在一条从Ti到Tj的有向边。系统将定期检查waits-for图中的环（通常是用一个后台线程），然后决定如何打破它。在构建图时不需要锁，因为如果DBMS在一次传递中错过了一个死锁，它将在随后的传递中找到它。
+
 ![image](https://user-images.githubusercontent.com/29897667/126906415-bac66c3e-74bc-4bbb-9b42-16100bbb167f.png)
 
-- 当DBMS检测到死锁，它会选择一个回退一个牺牲者事务取接触死锁
+- 当DBMS检测到死锁，它会选择一个rollback一个牺牲者事务取接触死锁
 - 牺牲者事务会重启或abort
 - 选择牺牲者事务可考虑的因素：
   - age （选择最新或最旧的timestamp）
@@ -101,14 +109,14 @@ DBMS会使用一个后台线程来进行死锁检测，创建一个 **wait-for g
 
 当一个txn请求一个lock，如果该lock被另一个txn持有，DBMS做一些操作来预防死锁。不需要wait-for graph或检测算法。
 
-按照时间戳来给txn分配优先级，老的优先级高。当一个txn重启时，优先级依然是之前的时间戳（防止饥饿情况）。
+按照时间戳来给txn分配优先级，**老的优先级高**。当一个txn重启时，**优先级依然是之前的时间戳**（防止饥饿情况）。
 
 两种策略（它们能够保证无死锁，是因为只允许按照一个方向等待lock）：
 
-- **Wait-Die（老的等待新的）**
+- **Wait-Die（Old Waits for Young）**
   - 如果正在请求的txn有更高的优先级，它等待正在持有lock的txn释放lock
   - 否则正在请求的txn abort
-- **Wound-Wait（老的打断新的）**
+- **Wound-Wait（Young Waits for Old）**
   - 如果正在请求的txn有更高的优先级，则正在持有lock的txn abort并释放lock
   - 否则正在请求的txn等待
 

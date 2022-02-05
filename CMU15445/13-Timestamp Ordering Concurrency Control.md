@@ -10,23 +10,40 @@ TO并发协议是一种乐观并发协议，用于DBMS假定txn间的冲突很�
 
 Txns在没有lock的情况下读写obj。
 
+基本时间戳排序协议（BASIC T/O）允许在不使用锁的情况下对数据库对象进行读和写。每个数据库对象X都被标记为最后一个txn的时间戳，该txn成功地对该对象进行了读（表示为R-TS（X））或写（表示为W-TS（X））。然后DBMS对每一个操作都检查这些时间戳。如果一个txn试图以违反时间戳排序的方式访问一个对象，该txn将被中止并重新启动。基本的假设是，违反的情况很少，因此这些重启也会很少。
+
+> ⚠️： 事务的时间戳是在事务begin的时间分配的，不会随着时间流逝而更新，是事务的固定属性
+
 ![image](https://user-images.githubusercontent.com/29897667/126941791-f388eec4-feef-40d3-9f86-a3d3a168fc78.png)
 
+对于读操作，如果TS(Ti) < W-TS(X)(意味着事务T
+i的启动时间比X的写入时间早)，这就违反了Ti相对于X的前一个写入者的时间戳顺序，因此，Ti被中止并以新的时间戳重新启动。
+
+如果TS(Ti) >= W-TS(X), 则允许Ti读取X, DBMS更新R-TS(X)为R-TS(X)和TS(Ti)的最大值。DBMS还必须制作一个X的本地副本，以确保对Ti的可重复读取。
+
 ![image](https://user-images.githubusercontent.com/29897667/126941861-198b20af-5da1-4230-92dc-d8aba1611435.png)
+
+对于写操作，如果TS(Ti)< R-TS(X)或TS(Ti)< W-TS(X)，Ti必须重新启动。
+
+Else，DBMS允许Ti写X并更新W-TS(X)。同样，它需要做一个X的本地拷贝，以确保Ti的可重复读取。
 
 ![image](https://user-images.githubusercontent.com/29897667/126941927-4fe91dd7-5592-4486-b8c4-67d3f24238c2.png)
 
 **优化：Thomas Write Rule** 
 
+对写的优化是，如果TS(Ti) < W-TS(X)，DBMS可以忽略写，允许事务继续，而不是中止和重新开始。这就是所谓的Thomas写入规则。注意，这违反了Ti的时间戳顺序，但这没有问题，**因为没有其他事务会读取Ti对对象X的写入**。
+
 ![image](https://user-images.githubusercontent.com/29897667/126942509-7a4e6f2d-5f22-45a6-8fe5-f2ad10036386.png)
+
+Base T/O协议产生的schedule如果**不使用Thomas Write Rule**，那么它就是**冲突可序列化**的(conflict serializable)。它不可能有死锁，因为没有事务在等待。然而，如果短的事务不断引起冲突，那么长的事务就有可能出现饿死。
 
 ![image](https://user-images.githubusercontent.com/29897667/126942658-f6841665-72e0-4a6c-a053-46b35e14229e.png)
 
-**recoverable**：一个事务只有当它所依赖数据的对应事务都已提交的情况下，再进行提交，这样的schedule是recoverable。
+**recoverable**：一个事务只有<u>当它所依赖数据的对应事务都已提交的情况下</u>，再进行提交，这样的schedule是recoverable。
 
 Basic TO Protocol下，DBMS不能保证txn读取到从故障恢复后将恢复的数据。
 
-**缺点**：
+**Base T/O协议的缺点**：
 
 - 将数据拷贝到txn的workspace以及更新timestamp有很大的开销
 - 长的txn可能会因为和短的txn冲突而不断重启，出现“饥饿”现象
