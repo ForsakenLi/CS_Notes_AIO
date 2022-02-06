@@ -24,7 +24,7 @@
 
 也叫作 **Volcano Model** 或 **Pipeline Model**。
 
-- 叫pipeline原因：对于一个tuple，这种模型能使它在query plan中尽可能多地被使用，即在一个operator中处理完后，然后返回并传入下一个operator继续处理（让一个tuple经过尽可能多的operators）。对一个tuple进行一些列处理加工的过程称为pipeline
+- 叫pipeline原因：对于一个tuple，这种模型能使它在query plan中尽可能多地被使用，即在一个operator中处理完后，然后返回并传入下一个operator继续处理（让一个tuple经过尽可能多的operators）。对一个tuple进行一些列处理加工的过程称为pipeline, <u>注意**Volcano Model**区别于其他模型最关键的点就是每次调用Next仅返回一个tuple</u>。
 - Iterator Model通过为数据库中的每个operator实现一个Next函数来工作。查询计划中的每个节点在其子节点上调用Next，直到到达叶子节点，叶子节点开始进行处理, 并向其父节点发出tuple。然后，每个tuple在返回上一级节点前，尽可能地按照计划完成处理。
 - 每个query plan operator实现一个`NEXT` 函数
   - 每次调用 `NEXT` ，operator会返回一个tuple或null（没有tuple时）

@@ -55,22 +55,26 @@ master table保存tuple的最新版本，将老版本数据复制到Time-Travel 
 
 ### 3.3. Delta Storage
 
-维护对前一个版本所做的修改
+维护对前一个版本所做的修改, 类似git
 
 ![image](https://user-images.githubusercontent.com/29897667/127381987-f3b8fa42-9069-4895-b838-b7123c508e0c.png)
 
-**优点**：写操作块；**缺点**：读旧版本数据慢
+**优点**：写操作块，写放大小；**缺点**：读旧版本数据慢，读放大大
 
 ## 4. Garbage Collection
 
 DBMS需要取移除可回收的、不再使用的物理版本。
 
+如果没有active的事务可以 "看到"该版本，或者如果该版本是由一个被中止的事务创建的，那么该版本就是可回收的。
+
 ### 4.1. Tuple Level Garbage Collection
 
 - **Background Vacuuming**：独立线程定时地扫描表、检查过时的版本并清除它们（O2N、N2O下都可使用）
+> 一个简单的优化是维护一个 "脏页bitmap"，它记录了自上次扫描以来哪些页面被修改了。这使得线程可以跳过没有变化的页面。
+
 - **Cooperative Cleaning**：线程执行查询遍历version chain时，遇到旧版本的数据就将其回收（只可用于O2N）
 
-### 4.2. Transaction Level 
+### 4.2. Transaction Level GC
 
 每个txn维护自己的读写集，当一个txn结束时，garbage collector通过这个读写集来确定哪些tuple可以回收。
 
@@ -78,15 +82,15 @@ DBMS需要取移除可回收的、不再使用的物理版本。
 
 ## 5. Index Management
 
-**primary key index** 会指向version chain的head。txn update pkey被当作DELETE+INSERT。
+**primary key index** 会指向version chain的head。txn update primary key被当作DELETE+INSERT。
 
 ![image](https://user-images.githubusercontent.com/29897667/127734860-44e5dff0-89fe-4db2-90ab-37af1e5e8f5f.png)
 
-**secondary index** 的管理更复杂：
+**secondary index(指向primary index的二级索引)** 的管理更复杂：
 
 - **Approach 1 :Logical Pointers**
 
-  - sec index中存放建立clu index的字段
+  - sec index中存放建立cluster index的字段
 
   ![image](https://user-images.githubusercontent.com/29897667/127734927-512c1730-57bf-4a3b-8a93-407dc944512a.png)
 
