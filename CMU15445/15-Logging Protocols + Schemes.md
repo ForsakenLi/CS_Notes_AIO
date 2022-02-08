@@ -78,16 +78,19 @@ DBMS为page维护master和shadow：
 
 **实现**：
 
+> 主要思路类似fork，采用了COW的方法，避免了对整个数据库的拷贝，采用对需要进行写操作的page进行拷贝的方式
+
 - 将DB pages组织为树状，root是一个disk page
 - root指向master，在shadow上进行更新
 - 事务提交时，将root指向shadow，并将修改后的root page落盘，然后修改内存中指针，即交换master和shadow
 
-**UNDO**：移除shadow page
+**UNDO**：不需要，移除shadow page即可
 
 **REDO**：不需要
 
 **缺点**：
 
+- 复制page的成本同样很高
 - 提交时的刷盘是随机IO，性能低下
 - 会有磁盘碎片，浪费空间
 
@@ -100,11 +103,15 @@ DBMS为page维护master和shadow：
 
 **策略**：**STEAL/NO-FORCE**
 
+- STEAL: 在事务被实际提交前，只要这些事务所对应的日志记录先落地到磁盘，那我们就能将这些dirty page写出到磁盘(即对对象的修改sink到磁盘的时间是其被换出到磁盘的时间)
+
+- NO-FORCE: 我们不要求事务对对象所做的所有修改都落地到磁盘，仅要求log records落地到磁盘
+
 **WAL协议**：
 
 - DBMS将事务的log records存在buffer pool的page中
-- DBMS需要在被修改的objects落盘之前将相关的log落盘
-- 对于一个事务，在它的log records落盘之后，它才可以提交
+- DBMS需要在**被修改的objects落盘之前**将相关的log落盘
+- 对于一个事务，在**它的log records落盘之后**，它才可以提交
 - 事务开始时log记录`<BEGIN>` 
 - 事务结束时，log中记录 `<COMMIT>`，确保事务提交前所有的log records落盘
 - 每个log entry包含object的一些信息：
@@ -113,8 +120,9 @@ DBMS为page维护master和shadow：
   - Before Value (UNDO)
   - After Value (REDO)
 - 可以使用 **group commit** 去分批flush多个事务的log，以提高性能
+- 把脏页写入磁盘的时间时任意的，只是必须是在将log records flush进磁盘之后
 
-**优点**：写入是顺序IO，性能好
+**优点**：写入是顺序IO，性能好（写入放大小）
 
 **缺点**：恢复时要重新执行事务，耗时长
 
@@ -131,13 +139,17 @@ DBMS为page维护master和shadow：
 - 如事务中的 UPDATE、DELETE、INSERT
 - 相对于physical logging，写入的数据更少
 - 缺点：
-  - 恢复时要重新执行每个txn，因此使用时间更多
+  - 恢复时要重放每个txn，因此使用时间更多
   - 如果有并行txn，很难实现logical logging，因为很难确定一个query已经修改了DB的哪一部分
 
 ### 5.3. Physiological Logging
 
 - log records针对单个page，但不需要指定page的数据组织方式
-- 使用最多
+- 混合方法，日志记录针对单一页面，但不指定页面的数据组织。也就是说，根据页面中的slot来识别tuple（object id），而不指定变化在页面中的确切位置。因此，DBMS可以在日志记录被写入磁盘后重新组织page。
+- 使用最广泛的方式
+  
+
+>简而言之，physical记录了事务的字节级变更，logical记录了事务的操作变更，physiological记录了事务的对象/tuple级变更
 
 ![image](https://user-images.githubusercontent.com/29897667/128632942-1518e963-ff4f-4f73-b8a5-f88b92d13f89.png)
 
@@ -147,7 +159,7 @@ log会逐渐变多，占用很大空间，且恢复时需要执行整个log，�
 
 因此DBMS可以定时生成 **checkpoint**，它flush 所有的page。
 
-**多久生成一个checkpoint**：太频繁会导致大量IO从而降低性能、太少会导致恢复时需要太多时间以及需要更多空间存储。
+**多久生成一个checkpoint**：太频繁会导致大量IO从而降低性能、太少会导致恢复时需要太多时间以及需要更多空间存储。Andy认为当log中的数据达到一定数量时才制作checkpoint是比较好的方式。
 
 **Blocking CheckPoint Implementation**：
 
