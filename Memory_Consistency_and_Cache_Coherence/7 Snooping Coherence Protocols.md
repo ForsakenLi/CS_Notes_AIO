@@ -1,0 +1,14 @@
+# 7 Snooping Coherence Protocols
+
+本章中，我们展示snooping coherence协议。Snooping协议是第一个广泛部署的协议类型，并且它们持续在大量不同的系统中使用。Snooping协议提供了许多极具吸引力的特性，包括低延迟coherence事务以及相比于可选的directory协议（第八章）来说概念上更简单的设计。
+
+我们首先以高层视角介绍snooping协议（7.1节）。随后我们呈现一个简单系统，系统带有一个完整但不复杂的三态（MSI）snooping协议（7.2节）。系统和协议作为基线，在其之上我们随后加入一些系统特性和协议优化手段。我们讨论的协议优化手段包括加入Exclusive状态（7.3节）和Owned状态（7.4节），还有更高性能的互联网络（7.5和7.6节）。然后我们讨论使用snooping协议的商业系统（7.7节），最后以讨论snooping和它的未来作为本章结尾（7.8节）。
+
+考虑到一些读者可能不想过于深入地讨论snooping，我们在章节组织上有做考虑，这类读者可以跳过7.3节到7.6节。
+
+
+## 7.1 SNOOPING简介
+
+snooping协议基于一个想法：所有coherence控制器按照相同的顺序观察（或称嗅探 snoop）coherence请求，并且共同地"做正确的事情"来维护coherence。通过要求所有取到一个给定block的请求按照顺序到达，snooping系统使得分布的coherence控制器能够正确更新由所有有限状态机所共同表示的cache block状态。
+
+传统的snooping协议广播请求到所有coherence控制器，包括发起请求的控制器。coherence请求通常在一个有序的广播网络例如某条总线上传输。有序的广播确保了每一个coherence控制器按照相同顺序观察到同一串coherence请求，即存在一个coherence请求的总顺序。由于总顺序纳入了所有的per-block顺序，这个总顺序保证了所有coherence控制器能够正确地更新一个cache block的状态。
