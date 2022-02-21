@@ -18,6 +18,12 @@
 
 - coordinator超时时间内收不到participant的ACK，会认为收到了abort
 
+### 优化
+
+- Early Prepare Voting: 如果DBMS向一个远程节点发送查询，而它知道该节点将是在那里执行的最后一个查询，那么该节点也会将他们在准备阶段的投票与查询结果一起返回。
+
+- Early Acknowledgement after Prepare: 如果所有节点都投票提交事务，协调者可以在提交阶段结束前向客户发送确认，说明他们的交易成功了。
+
 ## 2. CAP 理论
 
 ![image](https://user-images.githubusercontent.com/29897667/129472140-a27ccbc9-d132-4847-a4c5-c2d81184d319.png)
