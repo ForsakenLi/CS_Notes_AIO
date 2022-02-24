@@ -63,7 +63,7 @@ DBMS周期性地创建CheckPoints，此时会将所有dirty page刷盘。这么�
 
 ### 4.1. Blocking Checkpoints
 
-DBMS暂停所有的事务确保此CheckPoint可以生成一个一致性的快照：
+DBMS暂停所有的事务确保此CheckPoint可以生成一个一致性的快照：  
 
 - 停止所有新事务的开始
 - 等待活跃事务执行完
