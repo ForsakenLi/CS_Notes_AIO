@@ -140,10 +140,10 @@
 
 ##### Index Scan Page Sorting
 
-按照非聚集索引中的顺序查找tuples会导致随机IO，因此DBMS可以首先查找出所有tuples并且基于page id排序【相当于修改遍历tuple的顺序为page的顺序避免随机IO】（找出tuple对应的主键key，并将逐渐key排序，在进行disk IO，即 [MySQL MRR](https://github.com/XutongLi/My_Document/issues/9#issuecomment-874611801)）
+按照非聚集索引中的顺序查找tuples会导致随机IO，因此DBMS可以首先查找出所有tuples并且基于page id排序【相当于修改遍历tuple的顺序为page的顺序避免随机IO】（找出tuple对应的主键key，并将逐渐key排序，再进行disk IO）
 ![image](img/9-3.png)
 
-## 3.5 Modification Queries - 2021版新内容
+## 3.5 Modification Queries
 
 修改数据库的Operators（INSERT、UPDATE、DELETE）有责任检查约束和更新索引【老师的例子是如果插入时主键有Unique约束，那么Insert操作需要对这个约束进行一定的维护；以及如果使用了Zone Maps，那么在进行这些更新操作时需要这些操作符对Zone Map进行更新】。
 

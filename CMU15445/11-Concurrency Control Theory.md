@@ -118,7 +118,7 @@ conflict类型：
 
 我们可以通过交换不冲突的操作来验证一个schedule是可冲突序列化(conflict serializability)的，直到形成一个序列时间表(serial schedule)。
 
->下面两图分别展示了可冲突序列化和不可冲突序列化的例子
+>下面两图分别展示了可冲突序列化和不可冲突序列化的例子, 简单的说, 可冲突序列化的schedule就是可以通过交换不冲突的操作转换为下图右侧的串行化schedule
 
 ![11-1](img/11-1.png)
 

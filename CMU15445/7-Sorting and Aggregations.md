@@ -99,5 +99,3 @@
 - 如果匹配到已有的`GroupByKey`，则更新`RunningValue`
 - 否则插入`(GroupByKey, RunningValue)` 对
 
-![1623941995854](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1623941995854.png)
-

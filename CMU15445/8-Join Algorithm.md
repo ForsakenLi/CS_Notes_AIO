@@ -6,7 +6,7 @@
 
 ## 1. Output
 
-对于R表中的tuple r 和S表中的tuple s在join属性上匹配0时，join操作会组合r和s到一个新的output tuple中。
+对于R表中的tuple r 和S表中的tuple s在join属性上匹配时，join操作会组合r和s到一个新的output tuple中。
 
 ### Data
 

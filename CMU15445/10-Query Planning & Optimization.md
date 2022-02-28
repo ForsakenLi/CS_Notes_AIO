@@ -142,8 +142,6 @@ DBMS在internal catalog中存储关于table、attribute、index的internal stati
 
 #### 7.4.4. Conjunction
 
-![1626599847258](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1626599847258.png)
-
 #### 7.4.5. Disjunction
 
 ![image](https://user-images.githubusercontent.com/29897667/126062043-7c7ac323-cbf7-4c4d-9e5b-0d7413e0a6ee.png)
@@ -234,8 +232,6 @@ DBMS将WHERE子句中的 **嵌套子查询** 视为获取参数并返回单个�
 两种优化方法：
 
 1.重写以取消相关或展平查询。
-
-![1626639774689](C:\Users\XutongLi\AppData\Roaming\Typora\typora-user-images\1626639774689.png)
 
 2.分解嵌套查询并将结果存储在子表中
 
