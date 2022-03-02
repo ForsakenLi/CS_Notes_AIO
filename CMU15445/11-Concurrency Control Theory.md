@@ -74,7 +74,7 @@ DBMS为事务提供了一种错觉，即它们是在系统中单独运行。他�
 
 ##### 3.3.1.1. Schedule
 
-DBMS执行操作的顺序称为 **execution schedule**。<u>并发控制协议的目标是生成等价于一些序列执行的execution schedule</u>：
+DBMS执行操作的顺序称为 **execution schedule**。**并发控制协议的目标是生成等价于一些序列执行的execution schedule**：
 
 - **Serial Schedule**：不使不同tx的操作交错的schedule
 - **Equivalent Schedule**：对于任何数据库状态，执行第一个schedule的效果等价于执行第二个schedule
